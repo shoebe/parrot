@@ -3,15 +3,9 @@ use crate::{
     messaging::message::ParrotMessage,
     utils::create_response,
 };
-use serenity::{
-    client::Context,
-    model::application::interaction::application_command::ApplicationCommandInteraction,
-};
+use serenity::{all::CommandInteraction, client::Context};
 
-pub async fn pause(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn pause(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
     let manager = songbird::get(ctx).await.unwrap();
     let call = manager.get(guild_id).unwrap();

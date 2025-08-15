@@ -4,22 +4,17 @@ use crate::{
     messaging::messages::{FAIL_MINUTES_PARSING, FAIL_SECONDS_PARSING},
     utils::create_response,
 };
-use serenity::{
-    client::Context,
-    model::application::interaction::application_command::ApplicationCommandInteraction,
-};
+use serenity::{all::CommandInteraction, client::Context};
+use songbird::tracks::Action;
 use std::time::Duration;
 
-pub async fn seek(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn seek(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
     let manager = songbird::get(ctx).await.unwrap();
     let call = manager.get(guild_id).unwrap();
 
     let args = interaction.data.options.clone();
-    let seek_time = args.first().unwrap().value.as_ref().unwrap();
+    let seek_time = &args.first().unwrap().value;
 
     let timestamp_str = seek_time.as_str().unwrap();
     let mut units_iter = timestamp_str.split(':');
@@ -39,7 +34,7 @@ pub async fn seek(
         .ok_or(ParrotError::NothingPlaying)?;
     drop(handler);
 
-    track.seek_time(Duration::from_secs(timestamp)).unwrap();
+    track.action(move |_view| Some(Action::default().seek(Duration::from_secs(timestamp))));
 
     create_response(
         &ctx.http,

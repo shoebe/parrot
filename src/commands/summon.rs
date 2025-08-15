@@ -6,18 +6,14 @@ use crate::{
     utils::create_response,
 };
 use serenity::{
-    client::Context,
-    model::{
-        application::interaction::application_command::ApplicationCommandInteraction, id::ChannelId,
-    },
-    prelude::Mentionable,
+    all::CommandInteraction, client::Context, model::id::ChannelId, prelude::Mentionable,
 };
 use songbird::{Event, TrackEvent};
 use std::time::Duration;
 
 pub async fn summon(
     ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     send_reply: bool,
 ) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
@@ -39,7 +35,7 @@ pub async fn summon(
     }
 
     // join the channel
-    manager.join(guild.id, channel_id).await.1.unwrap();
+    let _c = manager.join(guild.id, channel_id).await.unwrap();
 
     // unregister existing events and register idle notifier
     if let Some(call) = manager.get(guild.id) {

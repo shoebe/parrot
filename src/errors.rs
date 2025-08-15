@@ -5,7 +5,6 @@ use crate::messaging::messages::{
 };
 use rspotify::ClientError as RSpotifyClientError;
 use serenity::{model::mention::Mention, prelude::SerenityError};
-use songbird::input::error::Error as InputError;
 use std::fmt::{Debug, Display};
 use std::{error::Error, fmt};
 
@@ -20,7 +19,8 @@ pub enum ParrotError {
     WrongVoiceChannel,
     AuthorNotFound,
     NothingPlaying,
-    TrackFail(InputError),
+    Songbird(songbird::error::ControlError),
+    Metadata(songbird::input::AuxMetadataError),
     AlreadyConnected(Mention),
     Serenity(SerenityError),
     RSpotify(RSpotifyClientError),
@@ -38,38 +38,27 @@ impl Error for ParrotError {}
 impl Display for ParrotError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Other(msg) => f.write_str(msg),
-            Self::QueueEmpty => f.write_str(QUEUE_IS_EMPTY),
-            Self::NotInRange(param, value, lower, upper) => f.write_str(&format!(
+            ParrotError::Other(msg) => f.write_str(msg),
+            ParrotError::QueueEmpty => f.write_str(QUEUE_IS_EMPTY),
+            ParrotError::NotInRange(param, value, lower, upper) => f.write_str(&format!(
                 "`{param}` should be between {lower} and {upper} but was {value}"
             )),
-            Self::NotConnected => f.write_str(FAIL_NO_VOICE_CONNECTION),
-            Self::AuthorDisconnected(mention) => {
+            ParrotError::NotConnected => f.write_str(FAIL_NO_VOICE_CONNECTION),
+            ParrotError::AuthorDisconnected(mention) => {
                 f.write_fmt(format_args!("{} {}", FAIL_AUTHOR_DISCONNECTED, mention))
             }
-            Self::WrongVoiceChannel => f.write_str(FAIL_WRONG_CHANNEL),
-            Self::AuthorNotFound => f.write_str(FAIL_AUTHOR_NOT_FOUND),
-            Self::AlreadyConnected(mention) => {
+            ParrotError::WrongVoiceChannel => f.write_str(FAIL_WRONG_CHANNEL),
+            ParrotError::AuthorNotFound => f.write_str(FAIL_AUTHOR_NOT_FOUND),
+            ParrotError::AlreadyConnected(mention) => {
                 f.write_fmt(format_args!("{} {}", FAIL_ANOTHER_CHANNEL, mention))
             }
-            Self::NothingPlaying => f.write_str(NOTHING_IS_PLAYING),
-            Self::TrackFail(err) => match err {
-                InputError::Json {
-                    error: _,
-                    parsed_text,
-                } => {
-                    if parsed_text.contains("Sign in to confirm your age") {
-                        f.write_str(TRACK_INAPPROPRIATE)
-                    } else {
-                        f.write_str(TRACK_NOT_FOUND)
-                    }
-                }
-                _ => f.write_str(&format!("{err}")),
-            },
-            Self::Serenity(err) => f.write_str(&format!("{err}")),
-            Self::RSpotify(err) => f.write_str(&format!("{err}")),
-            Self::IO(err) => f.write_str(&format!("{err}")),
-            Self::Serde(err) => f.write_str(&format!("{err}")),
+            ParrotError::NothingPlaying => f.write_str(NOTHING_IS_PLAYING),
+            ParrotError::Serenity(err) => f.write_str(&format!("{err}")),
+            ParrotError::RSpotify(err) => f.write_str(&format!("{err}")),
+            ParrotError::IO(err) => f.write_str(&format!("{err}")),
+            ParrotError::Serde(err) => f.write_str(&format!("{err}")),
+            ParrotError::Songbird(err) => f.write_str(&format!("{err}")),
+            ParrotError::Metadata(err) => f.write_str(&format!("{err}")),
         }
     }
 }

@@ -9,19 +9,14 @@ use crate::{
     utils::get_human_readable_timestamp,
 };
 use serenity::{
-    builder::{CreateButton, CreateComponents, CreateEmbed},
+    all::{
+        Button, ButtonStyle, CommandInteraction, CreateActionRow, CreateInteractionResponse,
+        CreateInteractionResponseMessage, EditMessage,
+    },
+    builder::{CreateButton, CreateEmbed},
     client::Context,
     futures::StreamExt,
-    model::{
-        application::{
-            component::ButtonStyle,
-            interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
-            },
-        },
-        channel::Message,
-        id::GuildId,
-    },
+    model::{channel::Message, id::GuildId},
     prelude::{RwLock, TypeMap},
 };
 use songbird::{tracks::TrackHandle, Event, TrackEvent};
@@ -36,10 +31,7 @@ use std::{
 const EMBED_PAGE_SIZE: usize = 6;
 const EMBED_TIMEOUT: u64 = 3600;
 
-pub async fn queue(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn queue(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
     let manager = songbird::get(ctx).await.unwrap();
     let call = manager.get(guild_id).unwrap();
@@ -49,20 +41,20 @@ pub async fn queue(
     drop(handler);
 
     interaction
-        .create_interaction_response(&ctx.http, |response| {
-            response
-                .kind(InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|message| {
-                    let num_pages = calculate_num_pages(&tracks);
-
-                    message
-                        .add_embed(create_queue_embed(&tracks, 0))
-                        .components(|components| build_nav_btns(components, 0, num_pages))
-                })
-        })
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .add_embed(create_queue_embed(&tracks, 0))
+                    .components({
+                        let num_pages = calculate_num_pages(&tracks);
+                        build_nav_btns(0, num_pages)
+                    }),
+            ),
+        )
         .await?;
 
-    let mut message = interaction.get_interaction_response(&ctx.http).await?;
+    let mut message = interaction.get_response(&ctx.http).await?;
     let page: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
 
     // store this interaction to context.data for later edits
@@ -110,23 +102,22 @@ pub async fn queue(
             _ => continue,
         };
 
-        mci.create_interaction_response(&ctx, |r| {
-            r.kind(InteractionResponseType::UpdateMessage);
-            r.interaction_response_data(|d| {
-                d.add_embed(create_queue_embed(&tracks, *page_wlock));
-                d.components(|components| build_nav_btns(components, *page_wlock, num_pages))
-            })
-        })
+        mci.create_response(
+            &ctx,
+            CreateInteractionResponse::UpdateMessage(
+                CreateInteractionResponseMessage::new()
+                    .add_embed(create_queue_embed(&tracks, *page_wlock))
+                    .components(build_nav_btns(*page_wlock, num_pages)),
+            ),
+        )
         .await?;
     }
 
     message
-        .edit(&ctx.http, |edit| {
-            let mut embed = CreateEmbed::default();
-            embed.description(QUEUE_EXPIRED);
-            edit.set_embed(embed);
-            edit.components(|f| f)
-        })
+        .edit(
+            &ctx.http,
+            EditMessage::new().add_embed(CreateEmbed::default().description(QUEUE_EXPIRED)),
+        )
         .await
         .unwrap();
 
@@ -179,20 +170,14 @@ fn build_single_nav_btn(label: &str, is_disabled: bool) -> CreateButton {
         .to_owned()
 }
 
-pub fn build_nav_btns(
-    components: &mut CreateComponents,
-    page: usize,
-    num_pages: usize,
-) -> &mut CreateComponents {
-    components.create_action_row(|action_row| {
-        let (cant_left, cant_right) = (page < 1, page >= num_pages - 1);
-
-        action_row
-            .add_button(build_single_nav_btn("<<", cant_left))
-            .add_button(build_single_nav_btn("<", cant_left))
-            .add_button(build_single_nav_btn(">", cant_right))
-            .add_button(build_single_nav_btn(">>", cant_right))
-    })
+pub fn build_nav_btns(page: usize, num_pages: usize) -> Vec<CreateActionRow> {
+    let (cant_left, cant_right) = (page < 1, page >= num_pages - 1);
+    vec![CreateActionRow::Buttons(vec![
+        build_single_nav_btn("<<", cant_left),
+        build_single_nav_btn("<", cant_left),
+        build_single_nav_btn(">", cant_right),
+        build_single_nav_btn(">>", cant_right),
+    ])]
 }
 
 fn build_queue_page(tracks: &[TrackHandle], page: usize) -> String {

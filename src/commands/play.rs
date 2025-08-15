@@ -7,21 +7,23 @@ use crate::{
     messaging::messages::{
         PLAY_QUEUE, PLAY_TOP, SPOTIFY_AUTH_FAILED, TRACK_DURATION, TRACK_TIME_TO_PLAY,
     },
-    sources::{
-        spotify::{Spotify, SPOTIFY},
-        youtube::{YouTube, YouTubeRestartable},
-    },
+    sources::spotify::{Spotify, SPOTIFY},
     utils::{
         compare_domains, create_now_playing_embed, create_response, edit_embed_response,
         edit_response, get_human_readable_timestamp,
     },
 };
 use serenity::{
-    builder::CreateEmbed, client::Context,
-    model::application::interaction::application_command::ApplicationCommandInteraction,
+    all::{CacheHttp, CommandInteraction, CreateEmbedFooter},
+    builder::CreateEmbed,
+    client::Context,
     prelude::Mutex,
 };
-use songbird::{input::Restartable, tracks::TrackHandle, Call};
+use songbird::{
+    input::{AuxMetadata, Input, YoutubeDl},
+    tracks::{Track, TrackHandle},
+    Call,
+};
 use std::{cmp::Ordering, error::Error as StdError, sync::Arc, time::Duration};
 use url::Url;
 
@@ -35,18 +37,14 @@ pub enum Mode {
     Jump,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum QueryType {
     Keywords(String),
     KeywordList(Vec<String>),
-    VideoLink(String),
-    PlaylistLink(String),
+    Link(String),
 }
 
-pub async fn play(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let args = interaction.data.options.clone();
     let first_arg = args.first().unwrap();
 
@@ -60,16 +58,8 @@ pub async fn play(
     };
 
     let url = match mode {
-        Mode::End => first_arg.value.as_ref().unwrap().as_str().unwrap(),
-        _ => first_arg
-            .options
-            .first()
-            .unwrap()
-            .value
-            .as_ref()
-            .unwrap()
-            .as_str()
-            .unwrap(),
+        Mode::End => first_arg.value.as_str().unwrap(),
+        _ => first_arg.value.as_str().unwrap(),
     };
 
     let guild_id = interaction.guild_id.unwrap();
@@ -114,8 +104,7 @@ pub async fn play(
                     )
                     .await;
                 }
-
-                YouTube::extract(url)
+                Some(QueryType::Link(url.to_string()))
             }
             None => None,
         },
@@ -159,23 +148,9 @@ pub async fn play(
 
     match mode {
         Mode::End => match query_type.clone() {
-            QueryType::Keywords(_) | QueryType::VideoLink(_) => {
+            QueryType::Keywords(_) | QueryType::Link(_) => {
                 let queue = enqueue_track(&call, &query_type).await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-            }
-            QueryType::PlaylistLink(url) => {
-                let urls = YouTubeRestartable::ytdl_playlist(&url, mode)
-                    .await
-                    .ok_or(ParrotError::Other("failed to fetch playlist"))?;
-
-                for url in urls.iter() {
-                    let Ok(queue) =
-                        enqueue_track(&call, &QueryType::VideoLink(url.to_string())).await
-                    else {
-                        continue;
-                    };
-                    update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-                }
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.iter() {
@@ -186,22 +161,9 @@ pub async fn play(
             }
         },
         Mode::Next => match query_type.clone() {
-            QueryType::Keywords(_) | QueryType::VideoLink(_) => {
+            QueryType::Keywords(_) | QueryType::Link(_) => {
                 let queue = insert_track(&call, &query_type, 1).await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-            }
-            QueryType::PlaylistLink(url) => {
-                let urls = YouTubeRestartable::ytdl_playlist(&url, mode)
-                    .await
-                    .ok_or(ParrotError::Other("failed to fetch playlist"))?;
-
-                for (idx, url) in urls.into_iter().enumerate() {
-                    let Ok(queue) = insert_track(&call, &QueryType::VideoLink(url), idx + 1).await
-                    else {
-                        continue;
-                    };
-                    update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-                }
             }
             QueryType::KeywordList(keywords_list) => {
                 for (idx, keywords) in keywords_list.into_iter().enumerate() {
@@ -212,7 +174,7 @@ pub async fn play(
             }
         },
         Mode::Jump => match query_type.clone() {
-            QueryType::Keywords(_) | QueryType::VideoLink(_) => {
+            QueryType::Keywords(_) | QueryType::Link(_) => {
                 let mut queue = enqueue_track(&call, &query_type).await?;
 
                 if !queue_was_empty {
@@ -221,29 +183,6 @@ pub async fn play(
                 }
 
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-            }
-            QueryType::PlaylistLink(url) => {
-                let urls = YouTubeRestartable::ytdl_playlist(&url, mode)
-                    .await
-                    .ok_or(ParrotError::Other("failed to fetch playlist"))?;
-
-                let mut insert_idx = 1;
-
-                for (i, url) in urls.into_iter().enumerate() {
-                    let Ok(mut queue) =
-                        insert_track(&call, &QueryType::VideoLink(url), insert_idx).await
-                    else {
-                        continue;
-                    };
-
-                    if i == 0 && !queue_was_empty {
-                        queue = force_skip_top_track(&call.lock().await).await?;
-                    } else {
-                        insert_idx += 1;
-                    }
-
-                    update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-                }
             }
             QueryType::KeywordList(keywords_list) => {
                 let mut insert_idx = 1;
@@ -263,17 +202,10 @@ pub async fn play(
             }
         },
         Mode::All | Mode::Reverse | Mode::Shuffle => match query_type.clone() {
-            QueryType::VideoLink(url) | QueryType::PlaylistLink(url) => {
-                let urls = YouTubeRestartable::ytdl_playlist(&url, mode)
-                    .await
-                    .ok_or(ParrotError::Other("failed to fetch playlist"))?;
-
-                for url in urls.into_iter() {
-                    let Ok(queue) = enqueue_track(&call, &QueryType::VideoLink(url)).await else {
-                        continue;
-                    };
+            QueryType::Link(url) => {
+                if let Ok(queue) = enqueue_track(&call, &QueryType::Link(url)).await {
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
-                }
+                };
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.into_iter() {
@@ -299,19 +231,19 @@ pub async fn play(
             let estimated_time = calculate_time_until_play(&queue, mode).await.unwrap();
 
             match (query_type, mode) {
-                (QueryType::VideoLink(_) | QueryType::Keywords(_), Mode::Next) => {
+                (QueryType::Link(_) | QueryType::Keywords(_), Mode::Next) => {
                     let track = queue.get(1).unwrap();
                     let embed = create_queued_embed(PLAY_TOP, track, estimated_time).await;
 
                     edit_embed_response(&ctx.http, interaction, embed).await?;
                 }
-                (QueryType::VideoLink(_) | QueryType::Keywords(_), Mode::End) => {
+                (QueryType::Link(_) | QueryType::Keywords(_), Mode::End) => {
                     let track = queue.last().unwrap();
                     let embed = create_queued_embed(PLAY_QUEUE, track, estimated_time).await;
 
                     edit_embed_response(&ctx.http, interaction, embed).await?;
                 }
-                (QueryType::PlaylistLink(_) | QueryType::KeywordList(_), _) => {
+                (QueryType::KeywordList(_), _) => {
                     edit_response(&ctx.http, interaction, ParrotMessage::PlaylistQueued).await?;
                 }
                 (_, _) => {}
@@ -337,7 +269,7 @@ async fn calculate_time_until_play(queue: &[TrackHandle], mode: Mode) -> Option<
     let top_track = queue.first()?;
     let top_track_elapsed = top_track.get_info().await.unwrap().position;
 
-    let top_track_duration = match top_track.metadata().duration {
+    let top_track_duration = match top_track.data::<AuxMetadata>().duration {
         Some(duration) => duration,
         None => return Some(Duration::MAX),
     };
@@ -346,8 +278,11 @@ async fn calculate_time_until_play(queue: &[TrackHandle], mode: Mode) -> Option<
         Mode::Next => Some(top_track_duration - top_track_elapsed),
         _ => {
             let center = &queue[1..queue.len() - 1];
-            let livestreams =
-                center.len() - center.iter().filter_map(|t| t.metadata().duration).count();
+            let livestreams = center.len()
+                - center
+                    .iter()
+                    .filter_map(|t| t.data::<AuxMetadata>().duration)
+                    .count();
 
             // if any of the tracks before are livestreams, the new track will never play
             if livestreams > 0 {
@@ -355,7 +290,7 @@ async fn calculate_time_until_play(queue: &[TrackHandle], mode: Mode) -> Option<
             }
 
             let durations = center.iter().fold(Duration::ZERO, |acc, x| {
-                acc + x.metadata().duration.unwrap()
+                acc + x.data::<AuxMetadata>().duration.unwrap()
             });
 
             Some(durations + top_track_duration - top_track_elapsed)
@@ -368,21 +303,7 @@ async fn create_queued_embed(
     track: &TrackHandle,
     estimated_time: Duration,
 ) -> CreateEmbed {
-    let mut embed = CreateEmbed::default();
-    let metadata = track.metadata().clone();
-
-    embed.thumbnail(&metadata.thumbnail.unwrap());
-
-    embed.field(
-        title,
-        &format!(
-            "[**{}**]({})",
-            metadata.title.unwrap(),
-            metadata.source_url.unwrap()
-        ),
-        false,
-    );
-
+    let metadata = track.data::<AuxMetadata>().clone();
     let footer_text = format!(
         "{}{}\n{}{}",
         TRACK_DURATION,
@@ -391,22 +312,31 @@ async fn create_queued_embed(
         get_human_readable_timestamp(Some(estimated_time))
     );
 
-    embed.footer(|footer| footer.text(footer_text));
-    embed
+    CreateEmbed::default()
+        .thumbnail(metadata.thumbnail.to_owned().unwrap())
+        .field(
+            title,
+            &format!(
+                "[**{}**]({})",
+                metadata.title.to_owned().unwrap(),
+                metadata.source_url.to_owned().unwrap()
+            ),
+            false,
+        )
+        .footer(CreateEmbedFooter::new(footer_text))
 }
 
-async fn get_track_source(query_type: QueryType) -> Result<Restartable, ParrotError> {
-    match query_type {
-        QueryType::VideoLink(query) => YouTubeRestartable::ytdl(query, true)
-            .await
-            .map_err(ParrotError::TrackFail),
+async fn get_track_source(query_type: QueryType) -> Result<Input, ParrotError> {
+    dbg!(&query_type);
 
-        QueryType::Keywords(query) => YouTubeRestartable::ytdl_search(query, true)
-            .await
-            .map_err(ParrotError::TrackFail),
+    let yt = match query_type {
+        QueryType::Link(query) => YoutubeDl::new(reqwest::Client::new(), query),
+        QueryType::Keywords(query) => YoutubeDl::new_search(reqwest::Client::new(), query),
 
         _ => unreachable!(),
-    }
+    };
+
+    Ok(Input::from(yt))
 }
 
 async fn enqueue_track(
@@ -414,10 +344,16 @@ async fn enqueue_track(
     query_type: &QueryType,
 ) -> Result<Vec<TrackHandle>, ParrotError> {
     // safeguard against ytdl dying on a private/deleted video and killing the playlist
-    let source = get_track_source(query_type.clone()).await?;
+    let mut source = get_track_source(query_type.clone()).await?;
+    let metadata = source
+        .aux_metadata()
+        .await
+        .map_err(|e| ParrotError::Metadata(e))?;
+
+    let track = Track::new_with_data(source, Arc::new(metadata));
 
     let mut handler = call.lock().await;
-    handler.enqueue_source(source.into());
+    handler.enqueue(track).await;
 
     Ok(handler.queue().current_queue())
 }

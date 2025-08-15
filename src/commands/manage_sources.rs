@@ -7,23 +7,16 @@ use crate::{
     },
 };
 use serenity::{
-    builder::{CreateComponents, CreateInputText},
-    client::Context,
-    collector::ModalInteractionCollectorBuilder,
-    futures::StreamExt,
-    model::{
-        application::interaction::application_command::ApplicationCommandInteraction,
-        prelude::{
-            component::{ActionRowComponent, InputTextStyle},
-            interaction::InteractionResponseType,
-        },
+    all::{
+        ActionRowComponent, CommandInteraction, CreateActionRow, CreateInputText,
+        CreateInteractionResponse, CreateInteractionResponseMessage, CreateModal, InputTextStyle,
+        ModalInteractionCollector,
     },
+    client::Context,
+    futures::StreamExt,
 };
 
-pub async fn allow(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn allow(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
 
     let mut data = ctx.data.write().await;
@@ -50,44 +43,39 @@ pub async fn allow(
 
     drop(data);
 
-    let mut allowed_input = CreateInputText::default();
-    allowed_input
-        .label(DOMAIN_FORM_ALLOWED_TITLE)
-        .custom_id("allowed_domains")
-        .style(InputTextStyle::Paragraph)
-        .placeholder(DOMAIN_FORM_ALLOWED_PLACEHOLDER)
-        .value(allowed_str)
-        .required(false);
+    let allowed_input = CreateInputText::new(
+        InputTextStyle::Paragraph,
+        DOMAIN_FORM_ALLOWED_TITLE,
+        "allowed_domains",
+    )
+    .placeholder(DOMAIN_FORM_ALLOWED_PLACEHOLDER)
+    .value(allowed_str)
+    .required(false);
 
-    let mut banned_input = CreateInputText::default();
-    banned_input
-        .label(DOMAIN_FORM_BANNED_TITLE)
-        .custom_id("banned_domains")
-        .style(InputTextStyle::Paragraph)
-        .placeholder(DOMAIN_FORM_BANNED_PLACEHOLDER)
-        .value(banned_str)
-        .required(false);
-
-    let mut components = CreateComponents::default();
-    components
-        .create_action_row(|r| r.add_input_text(allowed_input))
-        .create_action_row(|r| r.add_input_text(banned_input));
+    let banned_input = CreateInputText::new(
+        InputTextStyle::Paragraph,
+        DOMAIN_FORM_BANNED_TITLE,
+        "banned_domains",
+    )
+    .placeholder(DOMAIN_FORM_BANNED_PLACEHOLDER)
+    .value(banned_str)
+    .required(false);
 
     interaction
-        .create_interaction_response(&ctx.http, |r| {
-            r.kind(InteractionResponseType::Modal);
-            r.interaction_response_data(|d| {
-                d.title(DOMAIN_FORM_TITLE);
-                d.custom_id("manage_domains");
-                d.set_components(components)
-            })
-        })
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Modal(
+                CreateModal::new("manage_domains", DOMAIN_FORM_TITLE).components(vec![
+                    CreateActionRow::InputText(allowed_input),
+                    CreateActionRow::InputText(banned_input),
+                ]),
+            ),
+        )
         .await?;
 
-    // collect the submitted data
-    let collector = ModalInteractionCollectorBuilder::new(ctx)
+    let collector = ModalInteractionCollector::new(ctx)
         .filter(|int| int.data.custom_id == "manage_domains")
-        .build();
+        .stream();
 
     collector
         .then(|int| async move {
@@ -106,11 +94,11 @@ pub async fn allow(
             for input in inputs.iter() {
                 if let ActionRowComponent::InputText(it) = input {
                     if it.custom_id == "allowed_domains" {
-                        guild_settings.set_allowed_domains(&it.value);
+                        guild_settings.set_allowed_domains(&it.value.to_owned().unwrap());
                     }
 
                     if it.custom_id == "banned_domains" {
-                        guild_settings.set_banned_domains(&it.value);
+                        guild_settings.set_banned_domains(&it.value.to_owned().unwrap());
                     }
                 }
             }
@@ -119,9 +107,10 @@ pub async fn allow(
             guild_settings.save().unwrap();
 
             // it's now safe to close the modal, so send a response to it
-            int.create_interaction_response(&ctx.http, |r| {
-                r.kind(InteractionResponseType::DeferredUpdateMessage)
-            })
+            int.create_response(
+                &ctx.http,
+                CreateInteractionResponse::UpdateMessage(CreateInteractionResponseMessage::new()),
+            )
             .await
             .ok();
         })

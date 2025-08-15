@@ -1,15 +1,13 @@
 use serenity::{
+    all::{
+        CommandInteraction, CreateEmbedAuthor, CreateEmbedFooter, CreateInteractionResponse,
+        CreateInteractionResponseMessage, EditInteractionResponse, Message,
+    },
     builder::CreateEmbed,
     http::{Http, HttpError},
-    model::{
-        application::interaction::{
-            application_command::ApplicationCommandInteraction, InteractionResponseType,
-        },
-        channel::Message,
-    },
     Error,
 };
-use songbird::tracks::TrackHandle;
+use songbird::{input::AuxMetadata, tracks::TrackHandle};
 use std::{sync::Arc, time::Duration};
 use url::Url;
 
@@ -17,109 +15,110 @@ use crate::{errors::ParrotError, messaging::message::ParrotMessage};
 
 pub async fn create_response(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     message: ParrotMessage,
 ) -> Result<(), ParrotError> {
-    let mut embed = CreateEmbed::default();
-    embed.description(format!("{message}"));
+    let embed = CreateEmbed::default().description(format!("{message}"));
     create_embed_response(http, interaction, embed).await
 }
 
 pub async fn create_response_text(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     content: &str,
 ) -> Result<(), ParrotError> {
-    let mut embed = CreateEmbed::default();
-    embed.description(content);
+    let embed = CreateEmbed::default().description(content);
     create_embed_response(http, interaction, embed).await
 }
 
 pub async fn edit_response(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     message: ParrotMessage,
 ) -> Result<Message, ParrotError> {
-    let mut embed = CreateEmbed::default();
-    embed.description(format!("{message}"));
+    let embed = CreateEmbed::default().description(format!("{message}"));
     edit_embed_response(http, interaction, embed).await
 }
 
 pub async fn edit_response_text(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     content: &str,
 ) -> Result<Message, ParrotError> {
-    let mut embed = CreateEmbed::default();
-    embed.description(content);
+    let embed = CreateEmbed::default().description(content);
     edit_embed_response(http, interaction, embed).await
 }
 
 pub async fn create_embed_response(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     embed: CreateEmbed,
 ) -> Result<(), ParrotError> {
     match interaction
-        .create_interaction_response(&http, |response| {
-            response
-                .kind(InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|message| message.add_embed(embed.clone()))
-        })
+        .create_response(
+            &http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new().add_embed(embed.clone()),
+            ),
+        )
         .await
-        .map_err(Into::into)
     {
         Ok(val) => Ok(val),
         Err(err) => match err {
-            ParrotError::Serenity(Error::Http(ref e)) => match &**e {
+            serenity::Error::Http(ref e) => match &*e {
                 HttpError::UnsuccessfulRequest(req) => match req.error.code {
                     40060 => edit_embed_response(http, interaction, embed)
                         .await
                         .map(|_| ()),
-                    _ => Err(err),
+                    _ => Err(ParrotError::Serenity(err)),
                 },
-                _ => Err(err),
+                _ => Err(ParrotError::Serenity(err)),
             },
-            _ => Err(err),
+            _ => Err(ParrotError::Serenity(err)),
         },
     }
 }
 
 pub async fn edit_embed_response(
     http: &Arc<Http>,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     embed: CreateEmbed,
 ) -> Result<Message, ParrotError> {
     interaction
-        .edit_original_interaction_response(&http, |message| message.content(" ").add_embed(embed))
+        .edit_response(
+            &http,
+            EditInteractionResponse::new().content(" ").add_embed(embed),
+        )
         .await
         .map_err(Into::into)
 }
 
 pub async fn create_now_playing_embed(track: &TrackHandle) -> CreateEmbed {
-    let mut embed = CreateEmbed::default();
-    let metadata = track.metadata().clone();
+    let metadata = track.data::<AuxMetadata>();
 
-    embed.author(|author| author.name(ParrotMessage::NowPlaying));
-    embed.title(metadata.title.unwrap());
-    embed.url(metadata.source_url.as_ref().unwrap());
+    let embed = CreateEmbed::default()
+        .title(metadata.title.to_owned().unwrap_or_default())
+        .author(CreateEmbedAuthor::new(
+            ParrotMessage::NowPlaying.to_string(),
+        ))
+        .url(metadata.source_url.as_ref().unwrap());
 
     let position = get_human_readable_timestamp(Some(track.get_info().await.unwrap().position));
     let duration = get_human_readable_timestamp(metadata.duration);
 
-    embed.field("Progress", format!(">>> {} / {}", position, duration), true);
+    let embed = embed.field("Progress", format!(">>> {} / {}", position, duration), true);
 
-    match metadata.channel {
+    let embed = match &metadata.channel {
         Some(channel) => embed.field("Channel", format!(">>> {}", channel), true),
         None => embed.field("Channel", ">>> N/A", true),
     };
 
-    embed.thumbnail(&metadata.thumbnail.unwrap());
+    let embed = embed.thumbnail(metadata.thumbnail.to_owned().unwrap());
 
     let source_url = metadata.source_url.as_ref().unwrap();
 
     let (footer_text, footer_icon_url) = get_footer_info(source_url);
-    embed.footer(|f| f.text(footer_text).icon_url(footer_icon_url));
+    let embed = embed.footer(CreateEmbedFooter::new(footer_text).icon_url(footer_icon_url));
 
     embed
 }

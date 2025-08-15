@@ -6,16 +6,13 @@ use crate::{
     utils::create_embed_response,
     utils::create_response,
 };
-use serenity::{
-    builder::CreateEmbed, client::Context,
-    model::application::interaction::application_command::ApplicationCommandInteraction,
-};
-use songbird::tracks::TrackHandle;
+use serenity::{all::CommandInteraction, builder::CreateEmbed, client::Context};
+use songbird::{input::AuxMetadata, tracks::TrackHandle};
 use std::cmp::min;
 
 pub async fn remove(
     ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
 ) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
     let manager = songbird::get(ctx).await.unwrap();
@@ -23,17 +20,10 @@ pub async fn remove(
 
     let args = interaction.data.options.clone();
 
-    let remove_index = args
-        .first()
-        .unwrap()
-        .value
-        .as_ref()
-        .unwrap()
-        .as_u64()
-        .unwrap() as usize;
+    let remove_index = args.first().unwrap().value.as_i64().unwrap() as usize;
 
     let remove_until = match args.get(1) {
-        Some(arg) => arg.value.as_ref().unwrap().as_u64().unwrap() as usize,
+        Some(arg) => arg.value.as_i64().unwrap() as usize,
         None => remove_index,
     };
 
@@ -80,19 +70,16 @@ pub async fn remove(
 }
 
 async fn create_remove_enqueued_embed(track: &TrackHandle) -> CreateEmbed {
-    let mut embed = CreateEmbed::default();
-    let metadata = track.metadata().clone();
-
-    embed.field(
-        REMOVED_QUEUE,
-        &format!(
-            "[**{}**]({})",
-            metadata.title.unwrap(),
-            metadata.source_url.unwrap()
-        ),
-        false,
-    );
-    embed.thumbnail(&metadata.thumbnail.unwrap());
-
-    embed
+    let metadata = track.data::<AuxMetadata>().clone();
+    CreateEmbed::default()
+        .field(
+            REMOVED_QUEUE,
+            &format!(
+                "[**{}**]({})",
+                metadata.title.to_owned().unwrap(),
+                metadata.source_url.to_owned().unwrap()
+            ),
+            false,
+        )
+        .thumbnail(&metadata.thumbnail.to_owned().unwrap())
 }

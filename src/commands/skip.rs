@@ -3,25 +3,19 @@ use crate::{
     messaging::message::ParrotMessage,
     utils::create_response,
 };
-use serenity::{
-    client::Context,
-    model::application::interaction::application_command::ApplicationCommandInteraction,
-};
-use songbird::{tracks::TrackHandle, Call};
+use serenity::{all::CommandInteraction, client::Context};
+use songbird::{input::AuxMetadata, tracks::TrackHandle, Call};
 use std::cmp::min;
 use tokio::sync::MutexGuard;
 
-pub async fn skip(
-    ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
-) -> Result<(), ParrotError> {
+pub async fn skip(ctx: &Context, interaction: &mut CommandInteraction) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
     let manager = songbird::get(ctx).await.unwrap();
     let call = manager.get(guild_id).unwrap();
 
     let args = interaction.data.options.clone();
     let to_skip = match args.first() {
-        Some(arg) => arg.value.as_ref().unwrap().as_u64().unwrap() as usize,
+        Some(arg) => arg.value.as_i64().unwrap() as usize,
         None => 1,
     };
 
@@ -42,7 +36,7 @@ pub async fn skip(
 
 pub async fn create_skip_response(
     ctx: &Context,
-    interaction: &mut ApplicationCommandInteraction,
+    interaction: &mut CommandInteraction,
     handler: &MutexGuard<'_, Call>,
     tracks_to_skip: usize,
 ) -> Result<(), ParrotError> {
@@ -52,8 +46,18 @@ pub async fn create_skip_response(
                 &ctx.http,
                 interaction,
                 ParrotMessage::SkipTo {
-                    title: track.metadata().title.as_ref().unwrap().to_owned(),
-                    url: track.metadata().source_url.as_ref().unwrap().to_owned(),
+                    title: track
+                        .data::<AuxMetadata>()
+                        .title
+                        .as_ref()
+                        .unwrap()
+                        .to_owned(),
+                    url: track
+                        .data::<AuxMetadata>()
+                        .source_url
+                        .as_ref()
+                        .unwrap()
+                        .to_owned(),
                 },
             )
             .await
