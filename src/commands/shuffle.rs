@@ -35,6 +35,6 @@ where
     let mut index = values.len();
     while index >= 2 {
         index -= 1;
-        values.swap(index, rng.gen_range(0..(index + 1)));
+        values.swap(index, rng.random_range(0..(index + 1)));
     }
 }

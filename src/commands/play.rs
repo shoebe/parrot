@@ -15,7 +15,7 @@ use crate::{
 };
 use serde_json::Value;
 use serenity::{
-    all::{CacheHttp, CommandInteraction, CreateEmbedFooter},
+    all::{CommandInteraction, CreateEmbedFooter},
     builder::CreateEmbed,
     client::Context,
     prelude::Mutex,
@@ -339,7 +339,7 @@ async fn create_queued_embed(
         .thumbnail(metadata.thumbnail.to_owned().unwrap())
         .field(
             title,
-            &format!(
+            format!(
                 "[**{}**]({})",
                 metadata.title.to_owned().unwrap(),
                 metadata.source_url.to_owned().unwrap()
@@ -387,7 +387,7 @@ async fn get_track_source(
                 let urls = s
                     .lines()
                     .map(|line| {
-                        let entry: Value = serde_json::from_str(&line).unwrap();
+                        let entry: Value = serde_json::from_str(line).unwrap();
                         entry
                             .get("webpage_url")
                             .unwrap()

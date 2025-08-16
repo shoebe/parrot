@@ -157,7 +157,7 @@ impl Spotify {
     }
 
     fn build_query(artists: &str, track_name: &str) -> String {
-        format!("{} - {}", artists, track_name)
+        format!("{artists} - {track_name}")
     }
 
     fn join_artist_names(artists: &[SimplifiedArtist]) -> String {

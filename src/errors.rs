@@ -1,7 +1,6 @@
 use crate::messaging::messages::{
     FAIL_ANOTHER_CHANNEL, FAIL_AUTHOR_DISCONNECTED, FAIL_AUTHOR_NOT_FOUND,
     FAIL_NO_VOICE_CONNECTION, FAIL_WRONG_CHANNEL, NOTHING_IS_PLAYING, QUEUE_IS_EMPTY,
-    TRACK_INAPPROPRIATE, TRACK_NOT_FOUND,
 };
 use rspotify::ClientError as RSpotifyClientError;
 use serenity::{model::mention::Mention, prelude::SerenityError};
@@ -45,12 +44,12 @@ impl Display for ParrotError {
             )),
             ParrotError::NotConnected => f.write_str(FAIL_NO_VOICE_CONNECTION),
             ParrotError::AuthorDisconnected(mention) => {
-                f.write_fmt(format_args!("{} {}", FAIL_AUTHOR_DISCONNECTED, mention))
+                f.write_fmt(format_args!("{FAIL_AUTHOR_DISCONNECTED} {mention}"))
             }
             ParrotError::WrongVoiceChannel => f.write_str(FAIL_WRONG_CHANNEL),
             ParrotError::AuthorNotFound => f.write_str(FAIL_AUTHOR_NOT_FOUND),
             ParrotError::AlreadyConnected(mention) => {
-                f.write_fmt(format_args!("{} {}", FAIL_ANOTHER_CHANNEL, mention))
+                f.write_fmt(format_args!("{FAIL_ANOTHER_CHANNEL} {mention}"))
             }
             ParrotError::NothingPlaying => f.write_str(NOTHING_IS_PLAYING),
             ParrotError::Serenity(err) => f.write_str(&format!("{err}")),

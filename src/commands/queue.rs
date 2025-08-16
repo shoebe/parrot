@@ -10,7 +10,7 @@ use crate::{
 };
 use serenity::{
     all::{
-        Button, ButtonStyle, CommandInteraction, CreateActionRow, CreateEmbedFooter,
+        ButtonStyle, CommandInteraction, CreateActionRow, CreateEmbedFooter,
         CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
     },
     builder::{CreateButton, CreateEmbed},
@@ -147,7 +147,7 @@ pub fn create_queue_embed(tracks: &[TrackHandle], page: usize) -> CreateEmbed {
 
     embed
         .field(QUEUE_NOW_PLAYING, &description, false)
-        .field(QUEUE_UP_NEXT, &build_queue_page(tracks, page), false)
+        .field(QUEUE_UP_NEXT, build_queue_page(tracks, page), false)
         .footer(CreateEmbedFooter::new(format!(
             "{} {} {} {}",
             QUEUE_PAGE,

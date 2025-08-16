@@ -34,7 +34,7 @@ pub async fn seek(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         .ok_or(ParrotError::NothingPlaying)?;
     drop(handler);
 
-    track.action(move |_view| Some(Action::default().seek(Duration::from_secs(timestamp))));
+    let _ = track.action(move |_view| Some(Action::default().seek(Duration::from_secs(timestamp))));
 
     create_response(
         &ctx.http,

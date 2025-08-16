@@ -74,12 +74,12 @@ async fn create_remove_enqueued_embed(track: &TrackHandle) -> CreateEmbed {
     CreateEmbed::default()
         .field(
             REMOVED_QUEUE,
-            &format!(
+            format!(
                 "[**{}**]({})",
                 metadata.title.to_owned().unwrap(),
                 metadata.source_url.to_owned().unwrap()
             ),
             false,
         )
-        .thumbnail(&metadata.thumbnail.to_owned().unwrap())
+        .thumbnail(metadata.thumbnail.to_owned().unwrap())
 }

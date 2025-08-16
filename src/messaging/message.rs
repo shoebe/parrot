@@ -49,7 +49,7 @@ impl Display for ParrotMessage {
             Self::PlaylistQueued => f.write_str(PLAY_PLAYLIST),
             Self::PlayAllFailed => f.write_str(PLAY_ALL_FAILED),
             Self::PlayDomainBanned { domain } => {
-                f.write_str(&format!("⚠️ **{}** {}", domain, PLAY_FAILED_BLOCKED_DOMAIN))
+                f.write_str(&format!("⚠️ **{domain}** {PLAY_FAILED_BLOCKED_DOMAIN}"))
             }
             Self::Search => f.write_str(SEARCHING),
             Self::RemoveMultiple => f.write_str(REMOVED_QUEUE_MULTIPLE),
@@ -57,19 +57,17 @@ impl Display for ParrotMessage {
             Self::Shuffle => f.write_str(SHUFFLED_SUCCESS),
             Self::Stop => f.write_str(STOPPED),
             Self::VoteSkip { mention, missing } => f.write_str(&format!(
-                "{}{} {} {} {}",
-                SKIP_VOTE_EMOJI, mention, SKIP_VOTE_USER, missing, SKIP_VOTE_MISSING
+                "{SKIP_VOTE_EMOJI}{mention} {SKIP_VOTE_USER} {missing} {SKIP_VOTE_MISSING}"
             )),
-            Self::Seek { timestamp } => f.write_str(&format!("{} **{}**!", SEEKED, timestamp)),
+            Self::Seek { timestamp } => f.write_str(&format!("{SEEKED} **{timestamp}**!")),
             Self::Skip => f.write_str(SKIPPED),
             Self::SkipAll => f.write_str(SKIPPED_ALL),
             Self::SkipTo { title, url } => {
-                f.write_str(&format!("{} [**{}**]({})!", SKIPPED_TO, title, url))
+                f.write_str(&format!("{SKIPPED_TO} [**{title}**]({url})!"))
             }
-            Self::Summon { mention } => f.write_str(&format!("{} **{}**!", JOINING, mention)),
+            Self::Summon { mention } => f.write_str(&format!("{JOINING} **{mention}**!")),
             Self::Version { current } => f.write_str(&format!(
-                "{} [{}]({}/tag/v{})\n{}({}/latest)",
-                VERSION, current, RELEASES_LINK, current, VERSION_LATEST, RELEASES_LINK
+                "{VERSION} [{current}]({RELEASES_LINK}/tag/v{current})\n{VERSION_LATEST}({RELEASES_LINK}/latest)"
             )),
         }
     }
