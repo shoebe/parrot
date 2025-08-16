@@ -13,16 +13,12 @@ use crate::{
 };
 use serenity::{
     all::{
-        Command, CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption,
-        EditMember, Interaction,
+        ActivityData, Command, CommandInteraction, CommandOptionType, CreateCommand,
+        CreateCommandOption, EditMember, Interaction,
     },
     async_trait,
     client::{Context, EventHandler},
-    model::{
-        gateway::Ready,
-        id::GuildId,
-        prelude::{Activity, VoiceState},
-    },
+    model::{gateway::Ready, id::GuildId, prelude::VoiceState},
     prelude::Mentionable,
 };
 
@@ -31,11 +27,10 @@ pub struct SerenityHandler;
 #[async_trait]
 impl EventHandler for SerenityHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("🦜 {} is connected!", ready.user.name);
+        log::info!("🦜 {} is connected!", ready.user.name);
 
         // sets parrot activity status message to /play
-        let activity = Activity::listening("/play");
-        ctx.set_activity(activity).await;
+        ctx.set_activity(Some(ActivityData::listening("/play")));
 
         // attempts to authenticate to spotify
         *SPOTIFY.lock().await = Spotify::auth().await;
@@ -48,7 +43,7 @@ impl EventHandler for SerenityHandler {
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        let Interaction::ApplicationCommand(mut command) = interaction else {
+        let Interaction::Command(mut command) = interaction else {
             return;
         };
 
@@ -59,7 +54,7 @@ impl EventHandler for SerenityHandler {
 
     async fn voice_state_update(&self, ctx: Context, _old: Option<VoiceState>, new: VoiceState) {
         // do nothing if this is a voice update event for a user, not a bot
-        if new.user_id != ctx.cache.current_user_id() {
+        if new.user_id != ctx.cache.current_user().id {
             return;
         }
 
@@ -234,10 +229,10 @@ impl SerenityHandler {
     }
 
     async fn load_guilds_settings(&self, ctx: &Context, ready: &Ready) {
-        println!("[INFO] Loading guilds' settings");
+        log::info!("Loading guilds' settings");
         let mut data = ctx.data.write().await;
         for guild in &ready.guilds {
-            println!("[DEBUG] Loading guild settings for {:?}", guild);
+            log::info!("Loading guild settings for {guild:?}");
             let settings = data.get_mut::<GuildSettingsMap>().unwrap();
 
             let guild_settings = settings
@@ -245,10 +240,7 @@ impl SerenityHandler {
                 .or_insert_with(|| GuildSettings::new(guild.id));
 
             if let Err(err) = guild_settings.load_if_exists() {
-                println!(
-                    "[ERROR] Failed to load guild {} settings due to {}",
-                    guild.id, err
-                );
+                log::error!("Failed to load guild {} settings due to {}", guild.id, err);
             }
         }
     }
@@ -258,16 +250,17 @@ impl SerenityHandler {
         ctx: &Context,
         command: &mut CommandInteraction,
     ) -> Result<(), ParrotError> {
+        log::debug!("running command: {command:?}");
+
         let command_name = command.data.name.as_str();
 
         let guild_id = command.guild_id.unwrap();
-        let guild = ctx.cache.guild(guild_id).unwrap();
 
         // get songbird voice client
         let manager = songbird::get(ctx).await.unwrap();
 
         // parrot might have been disconnected manually
-        if let Some(call) = manager.get(guild.id) {
+        if let Some(call) = manager.get(guild_id) {
             let mut handler = call.lock().await;
             if handler.current_connection().is_none() {
                 handler.leave().await.unwrap();
@@ -278,40 +271,44 @@ impl SerenityHandler {
         let user_id = command.user.id;
         let bot_id = ctx.cache.current_user().id;
 
-        match command_name {
-            "autopause" | "clear" | "leave" | "pause" | "remove" | "repeat" | "resume" | "seek"
-            | "shuffle" | "skip" | "stop" | "voteskip" => {
-                match check_voice_connections(&guild, &user_id, &bot_id) {
+        {
+            let guild = ctx.cache.guild(guild_id).unwrap();
+
+            match command_name {
+                "autopause" | "clear" | "leave" | "pause" | "remove" | "repeat" | "resume"
+                | "seek" | "shuffle" | "skip" | "stop" | "voteskip" => {
+                    match check_voice_connections(&guild, &user_id, &bot_id) {
+                        Connection::User(_) | Connection::Neither => Err(ParrotError::NotConnected),
+                        Connection::Bot(bot_channel_id) => {
+                            Err(ParrotError::AuthorDisconnected(bot_channel_id.mention()))
+                        }
+                        Connection::Separate(_, _) => Err(ParrotError::WrongVoiceChannel),
+                        _ => Ok(()),
+                    }
+                }
+                "play" | "superplay" | "summon" => {
+                    match check_voice_connections(&guild, &user_id, &bot_id) {
+                        Connection::User(_) => Ok(()),
+                        Connection::Bot(_) if command_name == "summon" => {
+                            Err(ParrotError::AuthorNotFound)
+                        }
+                        Connection::Bot(_) if command_name != "summon" => {
+                            Err(ParrotError::WrongVoiceChannel)
+                        }
+                        Connection::Separate(bot_channel_id, _) => {
+                            Err(ParrotError::AlreadyConnected(bot_channel_id.mention()))
+                        }
+                        Connection::Neither => Err(ParrotError::AuthorNotFound),
+                        _ => Ok(()),
+                    }
+                }
+                "np" | "queue" => match check_voice_connections(&guild, &user_id, &bot_id) {
                     Connection::User(_) | Connection::Neither => Err(ParrotError::NotConnected),
-                    Connection::Bot(bot_channel_id) => {
-                        Err(ParrotError::AuthorDisconnected(bot_channel_id.mention()))
-                    }
-                    Connection::Separate(_, _) => Err(ParrotError::WrongVoiceChannel),
                     _ => Ok(()),
-                }
-            }
-            "play" | "superplay" | "summon" => {
-                match check_voice_connections(&guild, &user_id, &bot_id) {
-                    Connection::User(_) => Ok(()),
-                    Connection::Bot(_) if command_name == "summon" => {
-                        Err(ParrotError::AuthorNotFound)
-                    }
-                    Connection::Bot(_) if command_name != "summon" => {
-                        Err(ParrotError::WrongVoiceChannel)
-                    }
-                    Connection::Separate(bot_channel_id, _) => {
-                        Err(ParrotError::AlreadyConnected(bot_channel_id.mention()))
-                    }
-                    Connection::Neither => Err(ParrotError::AuthorNotFound),
-                    _ => Ok(()),
-                }
-            }
-            "np" | "queue" => match check_voice_connections(&guild, &user_id, &bot_id) {
-                Connection::User(_) | Connection::Neither => Err(ParrotError::NotConnected),
+                },
                 _ => Ok(()),
-            },
-            _ => Ok(()),
-        }?;
+            }?;
+        }
 
         match command_name {
             "autopause" => autopause(ctx, command).await,

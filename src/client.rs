@@ -1,4 +1,4 @@
-use serenity::model::gateway::GatewayIntents;
+use serenity::{model::gateway::GatewayIntents, prelude::TypeMapKey};
 use songbird::serenity::SerenityInit;
 
 use std::{collections::HashMap, env, error::Error};
@@ -7,6 +7,14 @@ use crate::{
     guild::{cache::GuildCacheMap, settings::GuildSettingsMap},
     handlers::SerenityHandler,
 };
+
+pub type HttpClient = reqwest::Client;
+
+pub struct HttpKey;
+
+impl TypeMapKey for HttpKey {
+    type Value = HttpClient;
+}
 
 pub struct Client {
     client: serenity::Client,
@@ -29,12 +37,10 @@ impl Client {
             .event_handler(SerenityHandler)
             .application_id(application_id)
             .register_songbird()
+            .type_map_insert::<GuildCacheMap>(HashMap::default())
+            .type_map_insert::<GuildSettingsMap>(HashMap::default())
+            .type_map_insert::<HttpKey>(HttpClient::new())
             .await?;
-
-        let mut data = client.data.write().await;
-        data.insert::<GuildCacheMap>(HashMap::default());
-        data.insert::<GuildSettingsMap>(HashMap::default());
-        drop(data);
 
         Ok(Client { client })
     }

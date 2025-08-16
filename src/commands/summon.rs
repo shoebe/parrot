@@ -17,13 +17,16 @@ pub async fn summon(
     send_reply: bool,
 ) -> Result<(), ParrotError> {
     let guild_id = interaction.guild_id.unwrap();
-    let guild = ctx.cache.guild(guild_id).unwrap();
 
     let manager = songbird::get(ctx).await.unwrap();
-    let channel_opt = get_voice_channel_for_user(&guild, &interaction.user.id);
+
+    let channel_opt = {
+        let guild = ctx.cache.guild(guild_id).unwrap();
+        get_voice_channel_for_user(&guild, &interaction.user.id)
+    };
     let channel_id = channel_opt.unwrap();
 
-    if let Some(call) = manager.get(guild.id) {
+    if let Some(call) = manager.get(guild_id) {
         let handler = call.lock().await;
         let has_current_connection = handler.current_connection().is_some();
 
@@ -35,10 +38,10 @@ pub async fn summon(
     }
 
     // join the channel
-    let _c = manager.join(guild.id, channel_id).await.unwrap();
+    let _c = manager.join(guild_id, channel_id).await.unwrap();
 
     // unregister existing events and register idle notifier
-    if let Some(call) = manager.get(guild.id) {
+    if let Some(call) = manager.get(guild_id) {
         let mut handler = call.lock().await;
 
         handler.remove_all_global_events();
@@ -57,7 +60,7 @@ pub async fn summon(
         handler.add_global_event(
             Event::Track(TrackEvent::End),
             TrackEndHandler {
-                guild_id: guild.id,
+                guild_id,
                 call: call.clone(),
                 ctx_data: ctx.data.clone(),
             },

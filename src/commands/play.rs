@@ -13,6 +13,7 @@ use crate::{
         edit_response, get_human_readable_timestamp,
     },
 };
+use serde_json::Value;
 use serenity::{
     all::{CacheHttp, CommandInteraction, CreateEmbedFooter},
     builder::CreateEmbed,
@@ -25,6 +26,7 @@ use songbird::{
     Call,
 };
 use std::{cmp::Ordering, error::Error as StdError, sync::Arc, time::Duration};
+use tokio::process::Command;
 use url::Url;
 
 #[derive(Clone, Copy)]
@@ -146,36 +148,50 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
     let queue_was_empty = handler.queue().is_empty();
     drop(handler);
 
+    let http_client = {
+        let data = ctx.data.read().await;
+        data.get::<crate::client::HttpKey>().cloned().unwrap()
+    };
+
     match mode {
         Mode::End => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let queue = enqueue_track(&call, &query_type).await?;
+                let queue = enqueue_track(http_client, &call, &query_type).await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.iter() {
-                    let queue =
-                        enqueue_track(&call, &QueryType::Keywords(keywords.to_string())).await?;
+                    let queue = enqueue_track(
+                        http_client.clone(),
+                        &call,
+                        &QueryType::Keywords(keywords.to_string()),
+                    )
+                    .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 }
             }
         },
         Mode::Next => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let queue = insert_track(&call, &query_type, 1).await?;
+                let queue = insert_track(http_client, &call, &query_type, 1).await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
             }
             QueryType::KeywordList(keywords_list) => {
                 for (idx, keywords) in keywords_list.into_iter().enumerate() {
-                    let queue =
-                        insert_track(&call, &QueryType::Keywords(keywords), idx + 1).await?;
+                    let queue = insert_track(
+                        http_client.clone(),
+                        &call,
+                        &QueryType::Keywords(keywords),
+                        idx + 1,
+                    )
+                    .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 }
             }
         },
         Mode::Jump => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let mut queue = enqueue_track(&call, &query_type).await?;
+                let mut queue = enqueue_track(http_client, &call, &query_type).await?;
 
                 if !queue_was_empty {
                     rotate_tracks(&call, 1).await.ok();
@@ -188,8 +204,13 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
                 let mut insert_idx = 1;
 
                 for (i, keywords) in keywords_list.into_iter().enumerate() {
-                    let mut queue =
-                        insert_track(&call, &QueryType::Keywords(keywords), insert_idx).await?;
+                    let mut queue = insert_track(
+                        http_client.clone(),
+                        &call,
+                        &QueryType::Keywords(keywords),
+                        insert_idx,
+                    )
+                    .await?;
 
                     if i == 0 && !queue_was_empty {
                         queue = force_skip_top_track(&call.lock().await).await?;
@@ -203,13 +224,15 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         },
         Mode::All | Mode::Reverse | Mode::Shuffle => match query_type.clone() {
             QueryType::Link(url) => {
-                if let Ok(queue) = enqueue_track(&call, &QueryType::Link(url)).await {
+                if let Ok(queue) = enqueue_track(http_client, &call, &QueryType::Link(url)).await {
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 };
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.into_iter() {
-                    let queue = enqueue_track(&call, &QueryType::Keywords(keywords)).await?;
+                    let queue =
+                        enqueue_track(http_client.clone(), &call, &QueryType::Keywords(keywords))
+                            .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 }
             }
@@ -326,39 +349,99 @@ async fn create_queued_embed(
         .footer(CreateEmbedFooter::new(footer_text))
 }
 
-async fn get_track_source(query_type: QueryType) -> Result<Input, ParrotError> {
+async fn get_track_source(
+    http_client: crate::client::HttpClient,
+    query_type: QueryType,
+) -> Result<Vec<Input>, ParrotError> {
     dbg!(&query_type);
 
-    let yt = match query_type {
-        QueryType::Link(query) => YoutubeDl::new(reqwest::Client::new(), query),
-        QueryType::Keywords(query) => YoutubeDl::new_search(reqwest::Client::new(), query),
+    match query_type {
+        QueryType::Link(query) => {
+            let url = Url::parse(&query).unwrap();
+            let list = url.query_pairs().find(|(name, _val)| name == "list");
+            if let Some((_name, list)) = list {
+                let playlist_query = format!("https://www.youtube.com/playlist?list={list}");
+
+                let args = vec![playlist_query.as_str(), "--flat-playlist", "-j"];
+
+                let output = Command::new("yt-dlp")
+                    .args(args)
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        log::error!("err: {e:?}");
+                        ParrotError::Other("error querying yt-dlp for playlist")
+                    })?;
+
+                if !output.status.success() {
+                    log::error!(
+                        "{} failed with non-zero status code: {}",
+                        "yt-dlp",
+                        std::str::from_utf8(&output.stderr[..]).unwrap_or("<no error message>")
+                    );
+                    return Err(ParrotError::Other("failed"));
+                }
+
+                let s = String::from_utf8_lossy(&output.stdout);
+
+                let urls = s
+                    .lines()
+                    .map(|line| {
+                        let entry: Value = serde_json::from_str(&line).unwrap();
+                        entry
+                            .get("webpage_url")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .to_string()
+                    })
+                    .map(|url| {
+                        let yt = YoutubeDl::new(http_client.clone(), url);
+                        Input::from(yt)
+                    });
+
+                let urls: Vec<_> = urls.collect();
+
+                Ok(urls)
+            } else {
+                let yt = YoutubeDl::new(http_client, query);
+                Ok(vec![Input::from(yt)])
+            }
+        }
+        QueryType::Keywords(query) => {
+            let yt = YoutubeDl::new_search(http_client, query);
+            Ok(vec![Input::from(yt)])
+        }
 
         _ => unreachable!(),
-    };
-
-    Ok(Input::from(yt))
+    }
 }
 
 async fn enqueue_track(
+    http_client: crate::client::HttpClient,
     call: &Arc<Mutex<Call>>,
     query_type: &QueryType,
 ) -> Result<Vec<TrackHandle>, ParrotError> {
     // safeguard against ytdl dying on a private/deleted video and killing the playlist
-    let mut source = get_track_source(query_type.clone()).await?;
-    let metadata = source
-        .aux_metadata()
-        .await
-        .map_err(|e| ParrotError::Metadata(e))?;
+    let source = get_track_source(http_client, query_type.clone()).await?;
 
-    let track = Track::new_with_data(source, Arc::new(metadata));
+    for mut s in source {
+        let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata)?;
 
-    let mut handler = call.lock().await;
-    handler.enqueue(track).await;
+        let track = Track::new_with_data(s, Arc::new(metadata));
+
+        let mut handler = call.lock().await;
+        handler.enqueue(track).await;
+    }
+
+    let handler = call.lock().await;
+    dbg!(handler.queue().current_queue().len());
 
     Ok(handler.queue().current_queue())
 }
 
 async fn insert_track(
+    http_client: crate::client::HttpClient,
     call: &Arc<Mutex<Call>>,
     query_type: &QueryType,
     idx: usize,
@@ -368,7 +451,7 @@ async fn insert_track(
     drop(handler);
 
     if queue_size <= 1 {
-        let queue = enqueue_track(call, query_type).await?;
+        let queue = enqueue_track(http_client, call, query_type).await?;
         return Ok(queue);
     }
 
@@ -377,7 +460,7 @@ async fn insert_track(
         ParrotError::NotInRange("index", idx as isize, 1, queue_size as isize),
     )?;
 
-    enqueue_track(call, query_type).await?;
+    enqueue_track(http_client, call, query_type).await?;
 
     let handler = call.lock().await;
     handler.queue().modify_queue(|queue| {

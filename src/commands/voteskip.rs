@@ -37,11 +37,13 @@ pub async fn voteskip(
     let cache = cache_map.entry(guild_id).or_default();
     cache.current_skip_votes.insert(interaction.user.id);
 
-    let guild_users = &ctx.cache.guild(guild_id).unwrap().voice_states;
-    let channel_guild_users = guild_users
-        .values()
-        .filter(|v| v.channel_id.unwrap() == bot_channel_id);
-    let skip_threshold = channel_guild_users.count() / 2;
+    let skip_threshold = {
+        let guild_users = &ctx.cache.guild(guild_id).unwrap().voice_states;
+        let channel_guild_users = guild_users
+            .values()
+            .filter(|v| v.channel_id.unwrap() == bot_channel_id);
+        channel_guild_users.count() / 2
+    };
 
     if cache.current_skip_votes.len() >= skip_threshold {
         force_skip_top_track(&handler).await?;

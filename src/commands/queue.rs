@@ -10,8 +10,8 @@ use crate::{
 };
 use serenity::{
     all::{
-        Button, ButtonStyle, CommandInteraction, CreateActionRow, CreateInteractionResponse,
-        CreateInteractionResponseMessage, EditMessage,
+        Button, ButtonStyle, CommandInteraction, CreateActionRow, CreateEmbedFooter,
+        CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
     },
     builder::{CreateButton, CreateEmbed},
     client::Context,
@@ -19,7 +19,7 @@ use serenity::{
     model::{channel::Message, id::GuildId},
     prelude::{RwLock, TypeMap},
 };
-use songbird::{tracks::TrackHandle, Event, TrackEvent};
+use songbird::{input::AuxMetadata, tracks::TrackHandle, Event, TrackEvent};
 use std::{
     cmp::{max, min},
     fmt::Write,
@@ -81,7 +81,7 @@ pub async fn queue(ctx: &Context, interaction: &mut CommandInteraction) -> Resul
     let mut cib = message
         .await_component_interactions(ctx)
         .timeout(Duration::from_secs(EMBED_TIMEOUT))
-        .build();
+        .stream();
 
     while let Some(mci) = cib.next().await {
         let btn_id = &mci.data.custom_id;
@@ -132,8 +132,8 @@ pub fn create_queue_embed(tracks: &[TrackHandle], page: usize) -> CreateEmbed {
     let mut embed: CreateEmbed = CreateEmbed::default();
 
     let description = if !tracks.is_empty() {
-        let metadata = tracks[0].metadata();
-        embed.thumbnail(tracks[0].metadata().thumbnail.as_ref().unwrap());
+        let metadata = tracks[0].data::<AuxMetadata>();
+        embed = embed.thumbnail(tracks[0].data::<AuxMetadata>().thumbnail.as_ref().unwrap());
 
         format!(
             "[{}]({}) • `{}`",
@@ -145,25 +145,20 @@ pub fn create_queue_embed(tracks: &[TrackHandle], page: usize) -> CreateEmbed {
         String::from(QUEUE_NOTHING_IS_PLAYING)
     };
 
-    embed.field(QUEUE_NOW_PLAYING, &description, false);
-    embed.field(QUEUE_UP_NEXT, &build_queue_page(tracks, page), false);
-
-    embed.footer(|f| {
-        f.text(format!(
+    embed
+        .field(QUEUE_NOW_PLAYING, &description, false)
+        .field(QUEUE_UP_NEXT, &build_queue_page(tracks, page), false)
+        .footer(CreateEmbedFooter::new(format!(
             "{} {} {} {}",
             QUEUE_PAGE,
             page + 1,
             QUEUE_PAGE_OF,
             calculate_num_pages(tracks),
-        ))
-    });
-
-    embed
+        )))
 }
 
 fn build_single_nav_btn(label: &str, is_disabled: bool) -> CreateButton {
-    CreateButton::default()
-        .custom_id(label.to_string().to_ascii_lowercase())
+    CreateButton::new(label.to_string().to_ascii_lowercase())
         .label(label)
         .style(ButtonStyle::Primary)
         .disabled(is_disabled)
@@ -195,9 +190,10 @@ fn build_queue_page(tracks: &[TrackHandle], page: usize) -> String {
     let mut description = String::new();
 
     for (i, t) in queue.iter().enumerate() {
-        let title = t.metadata().title.as_ref().unwrap();
-        let url = t.metadata().source_url.as_ref().unwrap();
-        let duration = get_human_readable_timestamp(t.metadata().duration);
+        let metadata = t.data::<AuxMetadata>();
+        let title = metadata.title.as_ref().unwrap();
+        let url = metadata.source_url.as_ref().unwrap();
+        let duration = get_human_readable_timestamp(metadata.duration);
 
         let _ = writeln!(
             description,
