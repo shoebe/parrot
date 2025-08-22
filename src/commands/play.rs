@@ -361,7 +361,7 @@ async fn create_queued_embed(
 async fn get_track_source(
     http_client: crate::client::HttpClient,
     query_type: QueryType,
-) -> Result<Vec<Input>, ParrotError> {
+) -> Result<Box<dyn Iterator<Item = YoutubeDl<'static>> + Send + Sync>, ParrotError> {
     dbg!(&query_type);
 
     match query_type {
@@ -395,8 +395,11 @@ async fn get_track_source(
 
                 let urls = s
                     .lines()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .into_iter()
                     .map(|line| {
-                        let entry: Value = serde_json::from_str(line).unwrap();
+                        let entry: Value = serde_json::from_str(&line).unwrap();
                         entry
                             .get("webpage_url")
                             .unwrap()
@@ -404,22 +407,20 @@ async fn get_track_source(
                             .unwrap()
                             .to_string()
                     })
-                    .map(|url| {
-                        let yt = YoutubeDl::new(http_client.clone(), url);
-                        Input::from(yt)
+                    .map(move |url| {
+                        log::info!("url: {url}");
+                        YoutubeDl::new(http_client.clone(), url)
                     });
 
-                let urls: Vec<_> = urls.collect();
-
-                Ok(urls)
+                Ok(Box::new(urls))
             } else {
                 let yt = YoutubeDl::new(http_client, query);
-                Ok(vec![Input::from(yt)])
+                Ok(Box::new(std::iter::once(yt)))
             }
         }
         QueryType::Keywords(query) => {
             let yt = YoutubeDl::new_search(http_client, query);
-            Ok(vec![Input::from(yt)])
+            Ok(Box::new(std::iter::once(yt)))
         }
 
         _ => unreachable!(),
@@ -434,7 +435,8 @@ async fn enqueue_track(
     // safeguard against ytdl dying on a private/deleted video and killing the playlist
     let source = get_track_source(http_client, query_type.clone()).await?;
 
-    for mut s in source {
+    for s in source {
+        let mut s = Input::from(s);
         let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata)?;
 
         let track = Track::new_with_data(s, Arc::new(metadata));
