@@ -5,7 +5,6 @@ use serenity::{
     },
     builder::CreateEmbed,
     http::{Http, HttpError},
-    Error,
 };
 use songbird::{input::AuxMetadata, tracks::TrackHandle};
 use std::{sync::Arc, time::Duration};

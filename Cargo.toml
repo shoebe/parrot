@@ -28,7 +28,9 @@ reqwest = { default-features = false, features = [
 ], version = "0.12.2" }
 
 [dependencies.songbird]
-version = "0.5.0"
+#version = "0.5.0"
+git = "https://github.com/MincoMK/songbird.git"
+rev = "9dfd04e41b2865603c258ad48839b05e105c6c09"
 features = ["builtin-queue"]
 
 [dependencies.symphonia]

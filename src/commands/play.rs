@@ -15,7 +15,7 @@ use crate::{
 };
 use serde_json::Value;
 use serenity::{
-    all::{CommandInteraction, CreateEmbedFooter},
+    all::{CommandDataOptionValue, CommandInteraction, CreateEmbedFooter},
     builder::CreateEmbed,
     client::Context,
     prelude::Mutex,
@@ -50,7 +50,7 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
     let args = interaction.data.options.clone();
     let first_arg = args.first().unwrap();
 
-    let mode = match first_arg.name.as_str() {
+    let queue_mode = match first_arg.name.as_str() {
         "next" => Mode::Next,
         "all" => Mode::All,
         "reverse" => Mode::Reverse,
@@ -59,9 +59,18 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         _ => Mode::End,
     };
 
-    let url = match mode {
-        Mode::End => first_arg.value.as_str().unwrap(),
-        _ => first_arg.value.as_str().unwrap(),
+    dbg!(&first_arg);
+
+    let url = match &first_arg.value {
+        CommandDataOptionValue::String(s) => s.as_str(),
+        CommandDataOptionValue::SubCommand(command_data_options) => {
+            let sub = command_data_options.first().unwrap();
+            sub.value.as_str().unwrap()
+        }
+        _ => {
+            log::error!("could not parse value: {:?}", &first_arg.value);
+            return Err(ParrotError::Other("error with command"));
+        }
     };
 
     let guild_id = interaction.guild_id.unwrap();
@@ -153,7 +162,7 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         data.get::<crate::client::HttpKey>().cloned().unwrap()
     };
 
-    match mode {
+    match queue_mode {
         Mode::End => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
                 let queue = enqueue_track(http_client, &call, &query_type).await?;
@@ -251,9 +260,9 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
 
     match queue.len().cmp(&1) {
         Ordering::Greater => {
-            let estimated_time = calculate_time_until_play(&queue, mode).await.unwrap();
+            let estimated_time = calculate_time_until_play(&queue, queue_mode).await.unwrap();
 
-            match (query_type, mode) {
+            match (query_type, queue_mode) {
                 (QueryType::Link(_) | QueryType::Keywords(_), Mode::Next) => {
                     let track = queue.get(1).unwrap();
                     let embed = create_queued_embed(PLAY_TOP, track, estimated_time).await;
