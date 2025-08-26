@@ -74,11 +74,14 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
     };
 
     let guild_id = interaction.guild_id.unwrap();
-    let manager = songbird::get(ctx).await.unwrap();
-
     // try to join a voice channel if not in one just yet
     summon(ctx, interaction, false).await?;
-    let call = manager.get(guild_id).unwrap();
+
+    let manager = songbird::get(ctx).await.unwrap();
+    let Some(call) = manager.get(guild_id) else {
+        log::error!("For some reason could not get call?");
+        return Err(ParrotError::NotConnected);
+    };
 
     // determine whether this is a link or a query string
     let query_type = match Url::parse(url) {

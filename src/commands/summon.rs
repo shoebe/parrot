@@ -38,7 +38,23 @@ pub async fn summon(
     }
 
     // join the channel
-    let _c = manager.join(guild_id, channel_id).await.unwrap();
+    for i in 1..=5 {
+        let c = manager.join(guild_id, channel_id).await;
+        match c {
+            Ok(_) => {
+                break;
+            }
+            Err(e) => {
+                log::error!("failed to join, error: {e:?}, retrying in 0.25 seconds");
+                let _e = manager.leave(guild_id).await;
+                std::thread::sleep(std::time::Duration::from_secs_f32(0.25));
+                if i == 5 {
+                    log::error!("could not join after trying 5 times");
+                    return Err(ParrotError::NotConnected);
+                }
+            }
+        }
+    }
 
     // unregister existing events and register idle notifier
     if let Some(call) = manager.get(guild_id) {

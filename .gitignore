@@ -3,3 +3,6 @@
 /data/
 
 .env
+
+build-and-copy.bash
+parrot.tar
