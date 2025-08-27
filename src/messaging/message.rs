@@ -20,6 +20,7 @@ pub enum ParrotMessage {
     PlayAllFailed,
     PlayDomainBanned { domain: String },
     PlaylistQueued,
+    String(String),
     RemoveMultiple,
     Resume,
     Search,
@@ -37,38 +38,43 @@ pub enum ParrotMessage {
 impl Display for ParrotMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AutopauseOff => f.write_str(AUTOPAUSE_OFF),
-            Self::AutopauseOn => f.write_str(AUTOPAUSE_ON),
-            Self::Clear => f.write_str(CLEARED),
-            Self::Error => f.write_str(ERROR),
-            Self::Leaving => f.write_str(LEAVING),
-            Self::LoopDisable => f.write_str(LOOP_DISABLED),
-            Self::LoopEnable => f.write_str(LOOP_ENABLED),
-            Self::NowPlaying => f.write_str(QUEUE_NOW_PLAYING),
-            Self::Pause => f.write_str(PAUSED),
-            Self::PlaylistQueued => f.write_str(PLAY_PLAYLIST),
-            Self::PlayAllFailed => f.write_str(PLAY_ALL_FAILED),
-            Self::PlayDomainBanned { domain } => {
-                f.write_str(&format!("⚠️ **{domain}** {PLAY_FAILED_BLOCKED_DOMAIN}"))
-            }
-            Self::Search => f.write_str(SEARCHING),
-            Self::RemoveMultiple => f.write_str(REMOVED_QUEUE_MULTIPLE),
-            Self::Resume => f.write_str(RESUMED),
-            Self::Shuffle => f.write_str(SHUFFLED_SUCCESS),
-            Self::Stop => f.write_str(STOPPED),
-            Self::VoteSkip { mention, missing } => f.write_str(&format!(
-                "{SKIP_VOTE_EMOJI}{mention} {SKIP_VOTE_USER} {missing} {SKIP_VOTE_MISSING}"
-            )),
-            Self::Seek { timestamp } => f.write_str(&format!("{SEEKED} **{timestamp}**!")),
-            Self::Skip => f.write_str(SKIPPED),
-            Self::SkipAll => f.write_str(SKIPPED_ALL),
-            Self::SkipTo { title, url } => {
-                f.write_str(&format!("{SKIPPED_TO} [**{title}**]({url})!"))
-            }
-            Self::Summon { mention } => f.write_str(&format!("{JOINING} **{mention}**!")),
-            Self::Version { current } => f.write_str(&format!(
-                "{VERSION} [{current}]({RELEASES_LINK}/tag/v{current})\n{VERSION_LATEST}({RELEASES_LINK}/latest)"
-            )),
+            ParrotMessage::AutopauseOff => {
+                        f.write_str(AUTOPAUSE_OFF)
+                    },
+            ParrotMessage::AutopauseOn => f.write_str(AUTOPAUSE_ON),
+            ParrotMessage::Clear => f.write_str(CLEARED),
+            ParrotMessage::Error => f.write_str(ERROR),
+            ParrotMessage::Leaving => f.write_str(LEAVING),
+            ParrotMessage::LoopDisable => f.write_str(LOOP_DISABLED),
+            ParrotMessage::LoopEnable => f.write_str(LOOP_ENABLED),
+            ParrotMessage::NowPlaying => f.write_str(QUEUE_NOW_PLAYING),
+            ParrotMessage::Pause => f.write_str(PAUSED),
+            ParrotMessage::PlaylistQueued => f.write_str(PLAY_PLAYLIST),
+            ParrotMessage::PlayAllFailed => f.write_str(PLAY_ALL_FAILED),
+            ParrotMessage::PlayDomainBanned { domain } => {
+                        f.write_str(&format!("⚠️ **{domain}** {PLAY_FAILED_BLOCKED_DOMAIN}"))
+                    }
+            ParrotMessage::Search => f.write_str(SEARCHING),
+            ParrotMessage::RemoveMultiple => f.write_str(REMOVED_QUEUE_MULTIPLE),
+            ParrotMessage::Resume => f.write_str(RESUMED),
+            ParrotMessage::Shuffle => f.write_str(SHUFFLED_SUCCESS),
+            ParrotMessage::Stop => f.write_str(STOPPED),
+            ParrotMessage::VoteSkip { mention, missing } => f.write_str(&format!(
+                        "{SKIP_VOTE_EMOJI}{mention} {SKIP_VOTE_USER} {missing} {SKIP_VOTE_MISSING}"
+                    )),
+            ParrotMessage::Seek { timestamp } => f.write_str(&format!("{SEEKED} **{timestamp}**!")),
+            ParrotMessage::Skip => f.write_str(SKIPPED),
+            ParrotMessage::SkipAll => f.write_str(SKIPPED_ALL),
+            ParrotMessage::SkipTo { title, url } => {
+                        f.write_str(&format!("{SKIPPED_TO} [**{title}**]({url})!"))
+                    }
+            ParrotMessage::Summon { mention } => f.write_str(&format!("{JOINING} **{mention}**!")),
+            ParrotMessage::Version { current } => f.write_str(&format!(
+                        "{VERSION} [{current}]({RELEASES_LINK}/tag/v{current})\n{VERSION_LATEST}({RELEASES_LINK}/latest)"
+                    )),
+            ParrotMessage::String(string) => {
+                write!(f, "{string}")
+            },
         }
     }
 }

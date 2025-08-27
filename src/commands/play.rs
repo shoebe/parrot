@@ -168,15 +168,18 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
     match queue_mode {
         Mode::End => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let queue = enqueue_track(http_client, &call, &query_type).await?;
+                let queue =
+                    enqueue_track(ctx, http_client, &call, &query_type, Some(interaction)).await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.iter() {
                     let queue = enqueue_track(
+                        ctx,
                         http_client.clone(),
                         &call,
                         &QueryType::Keywords(keywords.to_string()),
+                        Some(interaction),
                     )
                     .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
@@ -185,16 +188,20 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         },
         Mode::Next => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let queue = insert_track(http_client, &call, &query_type, 1).await?;
+                let queue =
+                    insert_track(ctx, http_client, &call, &query_type, 1, Some(interaction))
+                        .await?;
                 update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
             }
             QueryType::KeywordList(keywords_list) => {
                 for (idx, keywords) in keywords_list.into_iter().enumerate() {
                     let queue = insert_track(
+                        ctx,
                         http_client.clone(),
                         &call,
                         &QueryType::Keywords(keywords),
                         idx + 1,
+                        Some(interaction),
                     )
                     .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
@@ -203,7 +210,8 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         },
         Mode::Jump => match query_type.clone() {
             QueryType::Keywords(_) | QueryType::Link(_) => {
-                let mut queue = enqueue_track(http_client, &call, &query_type).await?;
+                let mut queue =
+                    enqueue_track(ctx, http_client, &call, &query_type, Some(interaction)).await?;
 
                 if !queue_was_empty {
                     rotate_tracks(&call, 1).await.ok();
@@ -217,10 +225,12 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
 
                 for (i, keywords) in keywords_list.into_iter().enumerate() {
                     let mut queue = insert_track(
+                        ctx,
                         http_client.clone(),
                         &call,
                         &QueryType::Keywords(keywords),
                         insert_idx,
+                        Some(interaction),
                     )
                     .await?;
 
@@ -236,15 +246,28 @@ pub async fn play(ctx: &Context, interaction: &mut CommandInteraction) -> Result
         },
         Mode::All | Mode::Reverse | Mode::Shuffle => match query_type.clone() {
             QueryType::Link(url) => {
-                if let Ok(queue) = enqueue_track(http_client, &call, &QueryType::Link(url)).await {
+                if let Ok(queue) = enqueue_track(
+                    ctx,
+                    http_client,
+                    &call,
+                    &QueryType::Link(url),
+                    Some(interaction),
+                )
+                .await
+                {
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 };
             }
             QueryType::KeywordList(keywords_list) => {
                 for keywords in keywords_list.into_iter() {
-                    let queue =
-                        enqueue_track(http_client.clone(), &call, &QueryType::Keywords(keywords))
-                            .await?;
+                    let queue = enqueue_track(
+                        ctx,
+                        http_client.clone(),
+                        &call,
+                        &QueryType::Keywords(keywords),
+                        Some(interaction),
+                    )
+                    .await?;
                     update_queue_messages(&ctx.http, &ctx.data, &queue, guild_id).await;
                 }
             }
@@ -431,20 +454,49 @@ async fn get_track_source(
 }
 
 async fn enqueue_track(
+    ctx: &Context,
     http_client: crate::client::HttpClient,
     call: &Arc<Mutex<Call>>,
     query_type: &QueryType,
+    mut interaction: Option<&mut CommandInteraction>,
 ) -> Result<Vec<TrackHandle>, ParrotError> {
-    // safeguard against ytdl dying on a private/deleted video and killing the playlist
     let source = get_track_source(http_client, query_type.clone()).await?;
 
     for s in source {
         let mut s = Input::from(s);
-        let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata)?;
+        let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata);
+
+        let metadata = match metadata {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                if let Some(interaction) = &mut interaction {
+                    create_response(
+                        &ctx.http,
+                        interaction,
+                        ParrotMessage::String(format!("failed to play song due to error: {e:?}")),
+                    )
+                    .await?;
+                }
+                continue;
+            }
+        };
 
         let track = Track::new_with_data(s, Arc::new(metadata));
 
         let mut handler = call.lock().await;
+        if handler.current_connection().is_none() {
+            if let Some(interaction) = &mut interaction {
+                create_response(
+                    &ctx.http,
+                    interaction,
+                    ParrotMessage::String(
+                        "not connected, so abort adding track to queue".to_string(),
+                    ),
+                )
+                .await?;
+            }
+            return Err(ParrotError::NotConnected);
+        }
         handler.enqueue(track).await;
     }
 
@@ -455,17 +507,19 @@ async fn enqueue_track(
 }
 
 async fn insert_track(
+    ctx: &Context,
     http_client: crate::client::HttpClient,
     call: &Arc<Mutex<Call>>,
     query_type: &QueryType,
     idx: usize,
+    interaction: Option<&mut CommandInteraction>,
 ) -> Result<Vec<TrackHandle>, ParrotError> {
     let handler = call.lock().await;
     let queue_size = handler.queue().len();
     drop(handler);
 
     if queue_size <= 1 {
-        let queue = enqueue_track(http_client, call, query_type).await?;
+        let queue = enqueue_track(ctx, http_client, call, query_type, interaction).await?;
         return Ok(queue);
     }
 
@@ -474,7 +528,7 @@ async fn insert_track(
         ParrotError::NotInRange("index", idx as isize, 1, queue_size as isize),
     )?;
 
-    enqueue_track(http_client, call, query_type).await?;
+    enqueue_track(ctx, http_client, call, query_type, interaction).await?;
 
     let handler = call.lock().await;
     handler.queue().modify_queue(|queue| {

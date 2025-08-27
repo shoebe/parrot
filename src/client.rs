@@ -31,7 +31,7 @@ impl Client {
             .expect("Fatality! DISCORD_APP_ID not set!")
             .parse()?;
 
-        let gateway_intents = GatewayIntents::non_privileged();
+        let gateway_intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
         let client = serenity::Client::builder(token, gateway_intents)
             .event_handler(SerenityHandler)

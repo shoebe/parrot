@@ -1,33 +1,23 @@
 # Build image
-# Necessary dependencies to build Parrot
-FROM rust:slim-trixie as build
-
-RUN apt-get update && apt-get install -y \
-    build-essential autoconf automake cmake libtool libssl-dev pkg-config
-
-WORKDIR "/parrot"
-
-# Cache cargo build dependencies by creating a dummy source
-RUN mkdir src
-RUN echo "fn main() {}" > src/main.rs
-COPY Cargo.toml ./
-COPY Cargo.lock ./
-RUN cargo build --release --locked
+FROM rust:alpine as builder
+RUN apk update && apk add wget build-base cmake pkgconf openssl-dev openssl-libs-static automake autoconf
 
 COPY . .
-RUN cargo build --release --locked
+RUN cargo install --path .
+
+RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp
+RUN chmod a+rx /usr/local/bin/yt-dlp  # Make executable
 
 # Release image
 # Necessary dependencies to run Parrot
-FROM debian:trixie-slim
+FROM alpine:latest
 
-RUN apt-get update && apt-get install -y python3 ffmpeg wget
+RUN apk update && apk add --no-cache python3
 
 RUN mkdir -p /bin
-RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /bin/yt-dlp
-RUN chmod a+rx /bin/yt-dlp  # Make executable
-RUN /bin/yt-dlp -U
+COPY --from=builder /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp 
+RUN /usr/local/bin/yt-dlp  -U
 
-COPY --from=build /parrot/target/release/parrot .
+COPY --from=builder /usr/local/cargo/bin/parrot /usr/local/bin/parrot
 
-CMD ["./parrot"]
+CMD ["parrot"]
