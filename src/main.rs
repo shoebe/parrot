@@ -31,6 +31,10 @@ pub fn logger_init() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     dotenv::dotenv().ok();
 
     logger_init();

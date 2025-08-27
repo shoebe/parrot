@@ -388,7 +388,7 @@ async fn get_track_source(
     http_client: crate::client::HttpClient,
     query_type: QueryType,
 ) -> Result<Box<dyn Iterator<Item = YoutubeDl<'static>> + Send + Sync>, ParrotError> {
-    dbg!(&query_type);
+    log::info!("query_type: {query_type:?}");
 
     match query_type {
         QueryType::Link(query) => {
@@ -501,7 +501,10 @@ async fn enqueue_track(
     }
 
     let handler = call.lock().await;
-    dbg!(handler.queue().current_queue().len());
+    log::info!(
+        "queue has length: {}",
+        handler.queue().current_queue().len()
+    );
 
     Ok(handler.queue().current_queue())
 }
