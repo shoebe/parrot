@@ -27,14 +27,21 @@ pub async fn summon(
     let channel_id = channel_opt.unwrap();
 
     if let Some(call) = manager.get(guild_id) {
-        let handler = call.lock().await;
+        let mut handler = call.lock().await;
+
         let has_current_connection = handler.current_connection().is_some();
 
-        if has_current_connection && send_reply {
+        if has_current_connection {
             // bot is in another channel
-            let bot_channel_id: ChannelId = handler.current_channel().unwrap().0.into();
-            return Err(ParrotError::AlreadyConnected(bot_channel_id.mention()));
+            if send_reply {
+                let bot_channel_id: ChannelId = handler.current_channel().unwrap().0.into();
+                return Err(ParrotError::AlreadyConnected(bot_channel_id.mention()));
+            } else {
+                return Ok(());
+            }
         }
+
+        handler.remove_all_global_events();
     }
 
     // unregister existing events and register idle notifier
