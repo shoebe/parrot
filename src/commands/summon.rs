@@ -33,12 +33,11 @@ pub async fn summon(
 
         if has_current_connection {
             // bot is in another channel
-            if send_reply {
-                let bot_channel_id: ChannelId = handler.current_channel().unwrap().0.into();
-                return Err(ParrotError::AlreadyConnected(bot_channel_id.mention()));
-            } else {
+            let bot_channel_id: ChannelId = handler.current_channel().unwrap().0.into();
+            if bot_channel_id == channel_id {
                 return Ok(());
             }
+            return Err(ParrotError::AlreadyConnected(bot_channel_id.mention()));
         }
 
         handler.remove_all_global_events();
