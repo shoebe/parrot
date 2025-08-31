@@ -149,7 +149,8 @@ impl Spotify {
                     let artist_names = Self::join_artist_names(&track.album.artists);
                     Some(Self::build_query(&artist_names, &track.name))
                 }
-                PlayableItem::Episode(_) => None,
+                PlayableItem::Episode(_e) => None,
+                PlayableItem::Unknown(_value) => None,
             })
             .collect();
 

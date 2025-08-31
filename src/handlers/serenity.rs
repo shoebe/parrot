@@ -66,6 +66,7 @@ impl EventHandler for SerenityHandler {
         let guild_id = new.guild_id.unwrap();
 
         if manager.get(guild_id).is_some() {
+            log::info!("removing guild_id: {guild_id}");
             manager.remove(guild_id).await.ok();
         }
 

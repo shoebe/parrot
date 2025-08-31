@@ -37,6 +37,7 @@ impl EventHandler for IdleHandler {
         if self.count.fetch_add(1, Ordering::Relaxed) >= self.limit {
             let guild_id = self.interaction.guild_id?;
 
+            log::info!("removing guild_id: {guild_id}");
             if self.manager.remove(guild_id).await.is_ok() {
                 self.interaction
                     .channel_id

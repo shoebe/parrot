@@ -43,8 +43,9 @@ pub async fn summon(
         handler.remove_all_global_events();
     }
 
-    // unregister existing events and register idle notifier
+    log::info!("joining guild_id: {guild_id}, channel_id: {channel_id}");
     if let Ok(call) = manager.join(guild_id, channel_id).await {
+        // unregister existing events and register idle notifier
         let mut handler = call.lock().await;
 
         handler.remove_all_global_events();
