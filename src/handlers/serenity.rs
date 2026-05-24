@@ -65,6 +65,11 @@ impl EventHandler for SerenityHandler {
         let manager = songbird::get(&ctx).await.unwrap();
         let guild_id = new.guild_id.unwrap();
 
+        if let Some(call) = manager.get(guild_id) {
+            let mut handler = call.lock().await;
+            handler.remove_all_global_events();
+        }
+
         if manager.get(guild_id).is_some() {
             log::info!("removing guild_id: {guild_id}");
             manager.remove(guild_id).await.ok();
