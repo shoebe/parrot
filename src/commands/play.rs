@@ -531,6 +531,10 @@ async fn enqueue_track(
             }
         };
 
+        let preload_time = metadata
+            .duration
+            .map(|d| d.saturating_sub(Duration::from_secs(5)));
+
         let track = Track::new_with_data(s, Arc::new(metadata));
 
         let mut handler = call.lock().await;
@@ -547,7 +551,7 @@ async fn enqueue_track(
             }
             return Err(ParrotError::NotConnected);
         }
-        handler.enqueue(track).await;
+        handler.enqueue_with_preload(track, preload_time);
     }
 
     let handler = call.lock().await;
