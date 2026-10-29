@@ -21,7 +21,7 @@ pub enum ParrotError {
     Songbird(songbird::error::ControlError),
     Metadata(songbird::input::AuxMetadataError),
     AlreadyConnected(Mention),
-    Serenity(SerenityError),
+    Serenity(Box<SerenityError>),
     RSpotify(RSpotifyClientError),
     IO(std::io::Error),
     Serde(serde_json::Error),
@@ -106,7 +106,7 @@ impl From<SerenityError> for ParrotError {
                 Self::NotInRange(param, value as isize, lower as isize, upper as isize)
             }
             SerenityError::Other(msg) => Self::Other(msg),
-            _ => Self::Serenity(err),
+            _ => Self::Serenity(Box::new(err)),
         }
     }
 }

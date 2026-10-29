@@ -387,7 +387,10 @@ async fn create_queued_embed(
 async fn get_track_source(
     http_client: crate::client::HttpClient,
     query_type: QueryType,
-) -> Result<Box<dyn Iterator<Item = YoutubeDl<'static>> + Send + Sync>, ParrotError> {
+) -> Result<
+    Box<dyn Iterator<Item = (YoutubeDl<'static>, Option<AuxMetadata>)> + Send + Sync>,
+    ParrotError,
+> {
     log::info!("query_type: {query_type:?}");
 
     match query_type {
@@ -419,34 +422,75 @@ async fn get_track_source(
 
                 let s = String::from_utf8_lossy(&output.stdout);
 
-                let urls = s
+                let items = s
                     .lines()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .map(|line| {
-                        let entry: Value = serde_json::from_str(&line).unwrap();
-                        entry
+                    .filter_map(|line| {
+                        let entry: Value = serde_json::from_str(line).ok()?;
+                        let id = entry.get("id").and_then(|v| v.as_str());
+                        let url = entry
                             .get("webpage_url")
-                            .unwrap()
-                            .as_str()
-                            .unwrap()
-                            .to_string()
-                    })
-                    .map(move |url| {
-                        log::info!("url: {url}");
-                        YoutubeDl::new(http_client.clone(), url)
-                    });
+                            .or_else(|| entry.get("url"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                id.map(|id| format!("https://www.youtube.com/watch?v={id}"))
+                            })?;
 
-                Ok(Box::new(urls))
+                        let title = entry
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| Some("Unknown Title".to_string()));
+
+                        let channel = entry
+                            .get("channel")
+                            .or_else(|| entry.get("uploader"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        let duration = entry
+                            .get("duration")
+                            .and_then(|v| v.as_f64())
+                            .map(Duration::from_secs_f64);
+
+                        let thumbnail = entry
+                            .get("thumbnails")
+                            .and_then(|t| t.as_array())
+                            .and_then(|arr| arr.last())
+                            .and_then(|t| t.get("url"))
+                            .and_then(|u| u.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                id.map(|id| format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"))
+                            })
+                            .or_else(|| {
+                                Some("https://i.ytimg.com/img/no_thumbnail.jpg".to_string())
+                            });
+
+                        let metadata = AuxMetadata {
+                            title,
+                            source_url: Some(url.clone()),
+                            channel: channel.clone(),
+                            artist: channel,
+                            duration,
+                            thumbnail,
+                            ..Default::default()
+                        };
+
+                        log::info!("url: {url}");
+                        Some((YoutubeDl::new(http_client.clone(), url), Some(metadata)))
+                    })
+                    .collect::<Vec<_>>();
+
+                Ok(Box::new(items.into_iter()))
             } else {
                 let yt = YoutubeDl::new(http_client, query);
-                Ok(Box::new(std::iter::once(yt)))
+                Ok(Box::new(std::iter::once((yt, None))))
             }
         }
         QueryType::Keywords(query) => {
             let yt = YoutubeDl::new_search(http_client, query);
-            Ok(Box::new(std::iter::once(yt)))
+            Ok(Box::new(std::iter::once((yt, None))))
         }
 
         _ => unreachable!(),
@@ -462,22 +506,28 @@ async fn enqueue_track(
 ) -> Result<Vec<TrackHandle>, ParrotError> {
     let source = get_track_source(http_client, query_type.clone()).await?;
 
-    for s in source {
+    for (s, maybe_metadata) in source {
         let mut s = Input::from(s);
-        let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata);
-
-        let metadata = match metadata {
-            Ok(metadata) => metadata,
-            Err(e) => {
-                if let Some(interaction) = &mut interaction {
-                    create_response(
-                        &ctx.http,
-                        interaction,
-                        ParrotMessage::String(format!("failed to play song due to error: {e:?}")),
-                    )
-                    .await?;
+        let metadata = match maybe_metadata {
+            Some(metadata) => metadata,
+            None => {
+                let metadata = s.aux_metadata().await.map_err(ParrotError::Metadata);
+                match metadata {
+                    Ok(metadata) => metadata,
+                    Err(e) => {
+                        if let Some(interaction) = &mut interaction {
+                            create_response(
+                                &ctx.http,
+                                interaction,
+                                ParrotMessage::String(format!(
+                                    "failed to play song due to error: {e:?}"
+                                )),
+                            )
+                            .await?;
+                        }
+                        continue;
+                    }
                 }
-                continue;
             }
         };
 

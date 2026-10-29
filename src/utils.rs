@@ -69,11 +69,11 @@ pub async fn create_embed_response(
                     40060 => edit_embed_response(http, interaction, embed)
                         .await
                         .map(|_| ()),
-                    _ => Err(ParrotError::Serenity(err)),
+                    _ => Err(ParrotError::Serenity(Box::new(err))),
                 },
-                _ => Err(ParrotError::Serenity(err)),
+                _ => Err(ParrotError::Serenity(Box::new(err))),
             },
-            _ => Err(ParrotError::Serenity(err)),
+            _ => Err(ParrotError::Serenity(Box::new(err))),
         },
     }
 }
