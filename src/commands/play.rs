@@ -384,7 +384,7 @@ async fn create_queued_embed(
         .footer(CreateEmbedFooter::new(footer_text))
 }
 
-async fn get_track_source(
+pub async fn get_track_source(
     http_client: crate::client::HttpClient,
     query_type: QueryType,
 ) -> Result<

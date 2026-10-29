@@ -1,8 +1,8 @@
 use crate::{
     commands::{
         autopause::*, clear::*, leave::*, manage_sources::*, now_playing::*, pause::*, play::*,
-        queue::*, remove::*, repeat::*, resume::*, seek::*, shuffle::*, skip::*, stop::*,
-        summon::*, version::*, voteskip::*,
+        queue::*, remove::*, repeat::*, restart::*, resume::*, seek::*, shuffle::*, skip::*,
+        stop::*, summon::*, version::*, voteskip::*,
     },
     connection::{check_voice_connections, Connection},
     errors::ParrotError,
@@ -200,6 +200,8 @@ impl SerenityHandler {
                         .min_int_value(1),
                     ),
                 CreateCommand::new("repeat").description("Toggles looping for the current track"),
+                CreateCommand::new("restart")
+                    .description("Kills the bot (hopefully it comes back)"),
                 CreateCommand::new("resume").description("Resumes the current track"),
                 CreateCommand::new("seek")
                     .description("Seeks current track to the given position")
@@ -267,9 +269,10 @@ impl SerenityHandler {
 
         // parrot might have been disconnected manually
         if let Some(call) = manager.get(guild_id) {
-            let mut handler = call.lock().await;
+            let handler = call.lock().await;
             if handler.current_connection().is_none() {
-                handler.leave().await.unwrap();
+                drop(handler);
+                let _ = manager.remove(guild_id).await;
             }
         }
 
@@ -281,8 +284,8 @@ impl SerenityHandler {
             let guild = ctx.cache.guild(guild_id).unwrap();
 
             match command_name {
-                "autopause" | "clear" | "leave" | "pause" | "remove" | "repeat" | "resume"
-                | "seek" | "shuffle" | "skip" | "stop" | "voteskip" => {
+                "autopause" | "clear" | "pause" | "remove" | "repeat" | "resume" | "seek"
+                | "shuffle" | "skip" | "stop" | "voteskip" => {
                     match check_voice_connections(&guild, &user_id, &bot_id) {
                         Connection::User(_) | Connection::Neither => Err(ParrotError::NotConnected),
                         Connection::Bot(bot_channel_id) => {
@@ -327,6 +330,7 @@ impl SerenityHandler {
             "queue" => queue(ctx, command).await,
             "remove" => remove(ctx, command).await,
             "repeat" => repeat(ctx, command).await,
+            "restart" => restart(ctx, command).await,
             "resume" => resume(ctx, command).await,
             "seek" => seek(ctx, command).await,
             "shuffle" => shuffle(ctx, command).await,

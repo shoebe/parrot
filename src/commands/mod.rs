@@ -8,6 +8,7 @@ pub mod play;
 pub mod queue;
 pub mod remove;
 pub mod repeat;
+pub mod restart;
 pub mod resume;
 pub mod seek;
 pub mod shuffle;

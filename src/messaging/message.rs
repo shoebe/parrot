@@ -22,6 +22,7 @@ pub enum ParrotMessage {
     PlaylistQueued,
     String(String),
     RemoveMultiple,
+    Restart,
     Resume,
     Search,
     Seek { timestamp: String },
@@ -56,6 +57,7 @@ impl Display for ParrotMessage {
                     }
             ParrotMessage::Search => f.write_str(SEARCHING),
             ParrotMessage::RemoveMultiple => f.write_str(REMOVED_QUEUE_MULTIPLE),
+            ParrotMessage::Restart => f.write_str(RESTARTED),
             ParrotMessage::Resume => f.write_str(RESUMED),
             ParrotMessage::Shuffle => f.write_str(SHUFFLED_SUCCESS),
             ParrotMessage::Stop => f.write_str(STOPPED),

@@ -47,6 +47,7 @@ pub const QUEUE_PAGE: &str = "Page";
 pub const QUEUE_UP_NEXT: &str = "⌛ Up next";
 pub const REMOVED_QUEUE_MULTIPLE: &str = "❌ Removed multiple tracks from queue!";
 pub const REMOVED_QUEUE: &str = "❌ Removed from queue";
+pub const RESTARTED: &str = "🔄 Restarting... be right back!";
 pub const RESUMED: &str = "▶️ Resumed!";
 pub const SEARCHING: &str = "🔎 Searching...";
 pub const SEEKED: &str = "⏩ Seeked current track to";
